@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
-
 	"github.com/RichardKnop/go-oauth2-server/models"
 	"github.com/RichardKnop/go-oauth2-server/session"
+	"io/ioutil"
+	"github.com/dgrijalva/jwt-go"
+	"time"
+	"log"
 )
 
 // ErrIncorrectResponseType a form value for response_type was not set to token or code
@@ -32,6 +34,23 @@ func (s *Service) authorizeForm(w http.ResponseWriter, r *http.Request) {
 		"token":       responseType == "token",
 	})
 }
+
+func getLocalPublicKey() (interface{}, error) {
+	pemData, err := ioutil.ReadFile(".cert/public.pem")
+	if err != nil {
+		return nil, err
+	}
+	return jwt.ParseRSAPublicKeyFromPEM(pemData)
+}
+
+func getLocalPrivateKey() (interface{}, error) {
+	pemData, err := ioutil.ReadFile(".cert/private.pem")
+	if err != nil {
+		return nil, err
+	}
+	return jwt.ParseRSAPrivateKeyFromPEM(pemData)
+}
+
 
 func (s *Service) authorize(w http.ResponseWriter, r *http.Request) {
 	_, client, user, responseType, redirectURI, err := s.authorizeCommon(r)
@@ -88,26 +107,45 @@ func (s *Service) authorize(w http.ResponseWriter, r *http.Request) {
 	// When response_type == "token", we will directly grant an access token
 	if responseType == "token" {
 		// Get access token lifetime from user input
-		lifetime, err := strconv.Atoi(r.Form.Get("lifetime"))
-		if err != nil {
+		//lifetime, err := strconv.Atoi(r.Form.Get("lifetime"))
+		/*if err != nil {
 			errorRedirect(w, r, redirectURI, "server_error", state, responseType)
 			return
 		}
+		*/
 
 		// Grant an access token
-		accessToken, err := s.oauthService.GrantAccessToken(
+		/*accessToken, err := s.oauthService.GrantAccessToken(
 			client,   // client
 			user,     // user
 			lifetime, // expires in
 			scope,    // scope
-		)
-		if err != nil {
+		)*/
+
+		/*if err != nil {
 			errorRedirect(w, r, redirectURI, "server_error", state, responseType)
 			return
-		}
+		}*/
+
+		iat := time.Now().UnixNano() / int64(time.Second)
+		exp := int32(iat) + int32(6*int64(time.Hour)/int64(time.Second))
+
+		localPrivateKey, _ := getLocalPrivateKey()
+
+		accessToken, _ := jwt.NewWithClaims(jwt.SigningMethodRS512, jwt.MapClaims{
+			"exp": exp,
+			"iat": iat,
+			"sub": user,
+		}).SignedString(
+			localPrivateKey,
+		)
+
+
+		log.Printf("Provisioning access token %s", accessToken)
+
 
 		// Set query string params for the redirection URL
-		query.Set("access_token", accessToken.Token)
+		query.Set("access_token", accessToken)
 		query.Set("expires_in", fmt.Sprintf("%d", s.cnf.Oauth.AccessTokenLifetime))
 		query.Set("token_type", "Bearer")
 		query.Set("scope", scope)

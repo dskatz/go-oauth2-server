@@ -2,7 +2,11 @@
 
 set -e
 
-executable="go-oauth2-server"
+which go-oauth2-server
+
+echo "boo"
+
+executable="/go/bin/go-oauth2-server"
 cmd="$@"
 
 if [ "$1" = 'runserver' ] || [ "$1" = 'loaddata' ]; then
